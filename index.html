@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Document Scanner</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="page-header">
+    <h1>Document Scanner</h1>
+    <p>Straighten and clean up a phone photo of a handout. Everything runs in your browser, so your photo is never uploaded.</p>
+  </header>
+
+  <main>
+    <section class="controls" aria-label="Controls">
+      <label class="button" for="file">Open photo</label>
+      <input id="file" type="file" accept="image/*" hidden>
+
+      <fieldset class="styles">
+        <legend>Style</legend>
+        <label><input type="radio" name="style" value="color" checked> Color</label>
+        <label><input type="radio" name="style" value="gray"> Gray</label>
+        <label><input type="radio" name="style" value="bw"> Black and white</label>
+      </fieldset>
+
+      <label class="check"><input type="checkbox" id="straighten" checked> Straighten the page</label>
+
+      <button id="scan" class="button primary" type="button" disabled>Scan</button>
+
+      <div class="saves">
+        <span>Save as</span>
+        <button id="save-png" class="button" type="button" disabled>PNG</button>
+        <button id="save-jpg" class="button" type="button" disabled>JPG</button>
+        <button id="save-pdf" class="button" type="button" disabled>PDF</button>
+      </div>
+    </section>
+
+    <p id="status" class="status" role="status" aria-live="polite">Click “Open photo” or drop a photo onto the left panel.</p>
+
+    <section class="views" aria-label="Photo and result">
+      <figure>
+        <figcaption>Original photo <small>Drag the four dots to fix the corners</small></figcaption>
+        <div class="frame" id="dropzone">
+          <canvas id="original" aria-label="Original photo with page corners"></canvas>
+          <p class="placeholder" id="placeholder-original">Drop a photo here</p>
+        </div>
+      </figure>
+      <figure>
+        <figcaption>Result</figcaption>
+        <div class="frame">
+          <canvas id="result" aria-label="Scanned result"></canvas>
+          <p class="placeholder" id="placeholder-result">The scan appears here</p>
+        </div>
+      </figure>
+    </section>
+
+    <section class="tips">
+      <h2>Tips for a good scan</h2>
+      <ul>
+        <li>Lay the page on a darker surface and keep all four corners inside the photo.</li>
+        <li>Shoot from above, in even light.</li>
+        <li>If the corners are wrong, drag the dots onto the corners of the page, then scan again.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
