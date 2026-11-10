@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flatbed – scan documents and photos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@7.8.2/build/index.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <nav><b>Flatbed</b><div><a class="btn" href="#guide">How it works</a><a class="btn primary" href="#scan">Start scanning</a></div></nav>
+  <header class="hero">
+    <div>
+      <h1>Scan documents. Fix photos.</h1>
+      <p>Point your camera or pick a file. Documents become clean Word, Excel, PowerPoint or PDF files. Photos can go black and white, get sharper, come alive with motion, and save as JPEG, PNG or WebP.</p>
+      <div class="row"><a class="btn primary" href="#scan">Start scanning</a><a class="btn" href="#guide">See the guide</a></div>
+    </div>
+    <div class="stage" aria-hidden="true"><div class="sheet"><i class="h"></i><i></i><i></i><i class="m"></i><i></i><i></i><i class="m"></i></div><div class="scan"></div></div>
+  </header>
+
+  <section class="block" id="guide">
+    <h2>How it works</h2>
+    <div class="two">
+      <div class="card"><h3>Documents</h3><ol>
+        <li>Press <b>Documents</b>, then use the live camera or choose a file from your device.</li>
+        <li>The page corners are found automatically. Drag the dots if they are off.</li>
+        <li>Press <b>Scan and clean</b>. The page is straightened, shadows and ruled lines are removed, and the text is read.</li>
+        <li>Check the text next to the scan. Lists and tables are kept in rows and columns.</li>
+        <li>Export to <b>Word</b>, <b>Excel</b>, <b>PowerPoint</b> or <b>PDF</b>. Pick a format under “Export directly as” to download in one tap.</li>
+        <li>Press <b>Clear scan</b> when you are done, or tick the box to clear after every export.</li>
+      </ol></div>
+      <div class="card"><h3>Photos</h3><ol>
+        <li>Press <b>Photos</b>, then use the live camera or choose a photo.</li>
+        <li>Turn on <b>Black and white</b> if you want it.</li>
+        <li>Drag <b>Enhance</b> to sharpen a soft photo.</li>
+        <li>Pick a motion style and press <b>Play</b> to animate it. <b>Record</b> saves it as a video.</li>
+        <li>Save as <b>JPEG</b>, <b>PNG</b> or <b>WebP</b>, or export a <b>PDF</b>.</li>
+      </ol></div>
+    </div>
+    <p class="note">Tips: use good light and a flat page. Printed text reads best. Handwriting and blurry photos need a quick check before you export. Enhance sharpens what is there; it cannot restore detail that was never captured.</p>
+  </section>
+
+  <main id="scan">
+    <div class="app">
+      <div class="tabs" role="tablist" aria-label="Choose what to scan">
+        <button role="tab" data-mode="doc" aria-selected="true">Documents</button>
+        <button role="tab" data-mode="photo" aria-selected="false">Photos</button>
+      </div>
+      <p class="status" id="status" role="status"></p>
+
+      <div id="pick" class="drop">
+        <div class="bar center"><button class="btn primary" id="cambtn">Use live camera</button><label class="btn" for="file">Choose from device</label></div>
+        <input id="file" type="file" accept="image/*" class="hide"><input id="camfile" type="file" accept="image/*" capture="environment" class="hide">
+        <p id="pickhint"></p>
+      </div>
+      <div id="camwrap" class="hide"><video id="cam" playsinline muted autoplay></video>
+        <div class="bar"><button class="btn primary" id="snap">Capture</button><button class="btn" id="camx">Cancel</button></div></div>
+
+      <!-- DOCUMENTS -->
+      <div id="doc" class="hide">
+        <div class="cols">
+          <div class="pane"><h3>Page corners</h3><div class="cv" id="cropbox"><canvas id="src"></canvas><svg id="poly" preserveAspectRatio="none"><polygon fill="rgba(14,143,154,.18)" stroke="#0e8f9a" stroke-width="2" vector-effect="non-scaling-stroke"/></svg></div></div>
+          <div class="pane"><h3>Cleaned scan</h3><div class="cv"><canvas id="out"></canvas></div></div>
+        </div>
+        <div class="opts">
+          <label><input type="checkbox" id="rules" checked> Remove ruled lines</label>
+          <label>Language <select id="lang"><option value="eng">English</option><option value="fil">Filipino</option><option value="spa">Spanish</option><option value="fra">French</option></select></label>
+          <label>Export directly as <select id="fmt"><option value="auto">Auto (Excel for lists, Word for text)</option><option value="xlsx">Excel</option><option value="docx">Word</option><option value="pptx">PowerPoint</option><option value="pdf">PDF</option><option value="ask">Ask me (no auto export)</option></select></label>
+        </div>
+        <div class="bar"><button class="btn primary" id="go">Scan and clean</button><button class="btn" data-clear>Choose another</button></div>
+
+        <div id="s-edit" class="hide">
+          <h3 style="font-size:1.3rem;margin-top:10px">Check and edit</h3><p class="status" id="kind"></p>
+          <div class="cols">
+            <div class="pane"><h3>Scan</h3><div class="cv"><canvas id="ref"></canvas></div></div>
+            <div class="pane"><h3>Extracted</h3><div id="blocks"></div><div id="tbl" class="tw"></div>
+              <div class="bar" id="tbar"><button class="btn" id="addrow">Add row</button><button class="btn" id="addcol">Add column</button></div></div>
+          </div>
+        </div>
+        <div id="s-exp" class="hide">
+          <h3 style="font-size:1.3rem">Export</h3>
+          <div class="bar"><button class="btn primary" data-x="docx">Word (.docx)</button><button class="btn primary" data-x="xlsx">Excel (.xlsx)</button><button class="btn primary" data-x="pptx">PowerPoint (.pptx)</button><button class="btn primary" data-x="pdf">PDF (.pdf)</button></div>
+          <div class="opts"><label><input type="checkbox" class="autoclear"> Clear the scan after exporting</label><button class="btn" data-clear>Clear scan</button></div>
+        </div>
+      </div>
+
+      <!-- PHOTOS -->
+      <div id="photo" class="hide">
+        <div class="cols">
+          <div class="pane"><h3>Preview</h3><div class="cv"><canvas id="pv"></canvas><canvas id="av" class="hide"></canvas></div></div>
+          <div class="pane">
+            <div class="opts" style="flex-direction:column;align-items:stretch">
+              <label><input type="checkbox" id="bw"> Black and white</label>
+              <label>Enhance (less blur) <input type="range" id="enh" min="0" max="100" value="0" style="flex:1"></label>
+              <label>Animation <select id="fx"><option value="zoom">Slow zoom</option><option value="pan">Side pan</option><option value="float">Floating</option></select></label>
+              <label>Save image as <select id="pf"><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label>
+            </div>
+            <div class="bar"><button class="btn" id="play">Play / stop animation</button><button class="btn" id="rec">Record animation</button></div>
+          </div>
+        </div>
+        <div class="bar"><button class="btn primary" id="dl-img">Save image</button><button class="btn primary" id="dl-ppdf">Export PDF</button><button class="btn" data-clear>Choose another</button></div>
+        <div class="opts"><label><input type="checkbox" class="autoclear"> Clear the photo after saving</label></div>
+      </div>
+    </div>
+  </main>
+  <footer>Straightening, cleaning, reading and exporting all run in your browser, so your files stay on your device.</footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
