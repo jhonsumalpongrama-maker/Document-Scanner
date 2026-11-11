@@ -98,17 +98,28 @@ async function doRead(){
   catch(e){say('Could not read the page'+(e&&e.message?': '+e.message:'.')+' You can still export it as a PDF.',1);return false}
 }
 const ensureDoc=async()=>doc||(await doRead()?doc:null);
+
+// How Word / PowerPoint keep the page:
+//  image = the cleaned scan IS the page (original look is kept exactly)  <- default
+//  both  = the page image first, then the editable text after it
+//  text  = rebuilt from OCR only (layout can change)
+const wmode=()=>($('wmode')&&$('wmode').value)||'image';
+const needsText=k=>k==='xlsx'||((k==='docx'||k==='pptx')&&wmode()!=='image');
+
 $('go').onclick=async()=>{const g=$('go');g.disabled=true;
   if(doFlatten()){const f=$('fmt').value;
     if(f==='pdf')await exportAs('pdf');
+    else if((f==='docx'||f==='pptx')&&wmode()==='image')await exportAs(f); // no reading needed, keeps the original look
     else if(await doRead()&&f!=='ask')await exportAs(f==='auto'?(doc.kind==='table'?'xlsx':'docx'):f);
     else if(f==='ask')say('Done. Check the text, then choose an export format.')}
   g.disabled=false};
 document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>exportAs(b.dataset.x));
 async function exportAs(k){
   try{
-    if(k==='pdf'){if(!$('out').width){say('Press Scan and clean first.',1);return}await save('scan.pdf',await pdfFrom($('out')))}
-    else{if(!$('out').width){say('Press Scan and clean first.',1);return}if(!await ensureDoc())return;
+    if(!$('out').width){say('Press Scan and clean first.',1);return}
+    if(k==='pdf')await save('scan.pdf',await pdfFrom($('out')));
+    else{
+      if(needsText(k)&&!await ensureDoc())return;
       if(k==='docx')await save('scan.docx',await makeDocx());
       if(k==='xlsx')await save('scan.xlsx',makeXlsx());
       if(k==='pptx')await save('scan.pptx',await makePptx())}
@@ -118,16 +129,36 @@ async function exportAs(k){
 async function pdfFrom(c){const J=window.jspdf&&window.jspdf.jsPDF;if(!J)throw new Error('the PDF builder did not load. Check your connection');
   const p=new J({unit:'px',format:[c.width,c.height],orientation:c.width>c.height?'l':'p',compress:true});
   p.addImage(c.toDataURL('image/jpeg',.92),'JPEG',0,0,c.width,c.height);return p.output('blob')}
+
+// the cleaned page as bytes + data URL, used to keep the original look
+async function pageImage(){
+  const c=$('out'),blob=await toBlob(c,'image/jpeg',.92);
+  return{bytes:new Uint8Array(await blob.arrayBuffer()),url:c.toDataURL('image/jpeg',.92),w:c.width,h:c.height};
+}
+
 async function makeDocx(){
-  const D=window.docx;if(!D)throw new Error('the Word builder did not load. Check your connection');const kids=[];
-  doc.blocks.forEach(b=>{const tx=(b.text||'').trim();if(!tx)return;
-    if(b.type==='heading')kids.push(new D.Paragraph({text:tx,heading:D.HeadingLevel.HEADING_1,spacing:{after:160}}));
-    else if(b.type==='list')tx.split('\n').filter(Boolean).forEach(l=>kids.push(new D.Paragraph({text:l.replace(/^[-•*\d.\s]+/,''),bullet:{level:0}})));
-    else tx.split('\n').filter(Boolean).forEach(l=>kids.push(new D.Paragraph({text:l,spacing:{after:140}})))});
-  if(doc.table){kids.push(new D.Paragraph({text:''}));
-    kids.push(new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE},rows:doc.table.rows.map((r,ri)=>new D.TableRow({children:r.map(c=>new D.TableCell({children:[new D.Paragraph({children:[new D.TextRun({text:String(c||''),bold:ri===0})]})]}))}))}))}
+  const D=window.docx;if(!D)throw new Error('the Word builder did not load. Check your connection');
+  const m=wmode(),kids=[];
+  // A4 at 96 dpi = 794 x 1123 px. 0.5 inch margins = 48 px.
+  const MARGIN=720,PW=794-96,PH=1123-96-14;
+  if(m!=='text'){
+    const im=await pageImage(),k=Math.min(PW/im.w,PH/im.h);
+    kids.push(new D.Paragraph({alignment:D.AlignmentType.CENTER,spacing:{before:0,after:0},
+      children:[new D.ImageRun({data:im.bytes,transformation:{width:Math.max(1,Math.round(im.w*k)),height:Math.max(1,Math.round(im.h*k))}})]}));
+    if(m==='both')kids.push(new D.Paragraph({children:[new D.PageBreak()]}));
+  }
+  if(m!=='image'&&doc){
+    doc.blocks.forEach(b=>{const tx=(b.text||'').trim();if(!tx)return;
+      if(b.type==='heading')kids.push(new D.Paragraph({text:tx,heading:D.HeadingLevel.HEADING_1,spacing:{after:160}}));
+      else if(b.type==='list')tx.split('\n').filter(Boolean).forEach(l=>kids.push(new D.Paragraph({text:l.replace(/^[-•*\d.\s]+/,''),bullet:{level:0}})));
+      else tx.split('\n').filter(Boolean).forEach(l=>kids.push(new D.Paragraph({text:l,spacing:{after:140}})))});
+    if(doc.table){kids.push(new D.Paragraph({text:''}));
+      kids.push(new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE},rows:doc.table.rows.map((r,ri)=>new D.TableRow({children:r.map(c=>new D.TableCell({children:[new D.Paragraph({children:[new D.TextRun({text:String(c||''),bold:ri===0})]})]}))}))}))}
+  }
   if(!kids.length)kids.push(new D.Paragraph({text:''}));
-  return D.Packer.toBlob(new D.Document({sections:[{children:kids}]}));
+  return D.Packer.toBlob(new D.Document({sections:[{
+    properties:{page:{size:{width:11906,height:16838},margin:{top:MARGIN,right:MARGIN,bottom:MARGIN,left:MARGIN,header:300,footer:300}}},
+    children:kids}]}));
 }
 function makeXlsx(){
   if(!window.XLSX)throw new Error('the Excel builder did not load. Check your connection');let rows;
@@ -139,11 +170,23 @@ function makeXlsx(){
 }
 async function makePptx(){
   if(!window.PptxGenJS)throw new Error('the PowerPoint builder did not load. Check your connection');
-  const p=new PptxGenJS();p.layout='LAYOUT_WIDE';const slides=[];let cs=null;
+  const m=wmode(),p=new PptxGenJS();
+  if(m==='image'){ // one slide shaped exactly like the page, with the scan filling it
+    const im=await pageImage(),H=7.5,W=Math.max(3,Math.min(20,H*im.w/im.h));
+    p.defineLayout({name:'SCAN',width:W,height:H});p.layout='SCAN';
+    p.addSlide().addImage({data:im.url,x:0,y:0,w:W,h:H});
+    return p.write({outputType:'blob'});
+  }
+  p.layout='LAYOUT_WIDE';
+  if(m==='both'){
+    const im=await pageImage(),bw=12.5,bh=7.1,r=im.w/im.h;let w=bh*r,h=bh;if(w>bw){w=bw;h=bw/r}
+    p.addSlide().addImage({data:im.url,x:(13.33-w)/2,y:(7.5-h)/2,w,h});
+  }
+  const slides=[];let cs=null;
   doc.blocks.forEach(b=>{const tx=(b.text||'').trim();if(!tx)return;
     if(b.type==='heading'||!cs){cs={title:b.type==='heading'?tx:'Scanned document',items:[]};slides.push(cs);if(b.type==='heading')return}
     tx.split('\n').filter(Boolean).forEach(l=>cs.items.push({text:l,options:{bullet:true,breakLine:true}}))});
-  if(!slides.length&&!doc.table)slides.push({title:'Scanned document',items:[]});
+  if(!slides.length&&!doc.table&&m==='text')slides.push({title:'Scanned document',items:[]});
   const title=(s,t)=>s.addText(t,{x:.6,y:.4,w:12.1,h:.9,fontSize:30,bold:true,color:'0E5F68'});
   slides.forEach(sl=>{const s=p.addSlide();title(s,sl.title);if(sl.items.length)s.addText(sl.items,{x:.6,y:1.5,w:12.1,h:5.2,fontSize:20,valign:'top',fit:'shrink'})});
   if(doc.table){const s=p.addSlide();title(s,slides.length?'Table':'Scanned table');
@@ -256,7 +299,7 @@ async function readWithClaude(blob){ // used only inside claude.ai
   const prompt=`Transcribe the attached scanned document faithfully. Keep the original wording, language and order. Do not invent text; use "?" for illegible parts.
 Return ONLY JSON in this shape:
 {"kind":"text"|"table","blocks":[{"type":"heading"|"paragraph"|"list","text":"..."}],"table":null|{"rows":[["cell","cell"]]}}
-Rules: "kind" is "table" if the page is mainly a grid such as an attendance list, schedule or grade sheet. Put any title or text outside the grid in "blocks". Put the grid in "table.rows" with the header row first, every row with the same number of cells, empty cells as "". For a "list" block, separate items with newline characters.`;
+Rules: "kind" is "table" if the page is mainly a grid such as an attendance list, schedule or grade sheet. A flow chart, diagram or figure is NOT a table: skip its drawn boxes and arrows, and only keep its caption as a paragraph. Put any title or text outside the grid in "blocks". Put the grid in "table.rows" with the header row first, every row with the same number of cells, empty cells as "". For a "list" block, separate items with newline characters.`;
   return sample.json(prompt,{images:[blob],modelTier:'default',cache:false});
 }
 
@@ -267,22 +310,25 @@ async function readLocal(){ // free, in-browser OCR (Tesseract.js)
 }
 
 // Turns OCR lines + word positions into headings, paragraphs, lists and a table.
+// Noise from diagrams, borders and page edges (garbage like "= RE SR SNR |") is dropped here.
 function layout(data){
-  const W=$('out').width;
-  const L=(data.lines||(data.blocks||[]).flatMap(b=>b.paragraphs.flatMap(p=>p.lines))).filter(l=>l.text.trim()&&l.confidence>25);
+  const W=$('out').width,PIPE=/[|¦]/g;
+  const goodLine=l=>{const t=l.text.replace(PIPE,' ').trim(),flat=t.replace(/\s/g,''),al=(t.match(/[A-Za-z0-9]/g)||[]).length;
+    return flat.length>0&&al>=2&&al/flat.length>=.65&&l.confidence>=55};
+  const L=(data.lines||(data.blocks||[]).flatMap(b=>b.paragraphs.flatMap(p=>p.lines))).filter(goodLine);
   if(!L.length)return{kind:'text',blocks:[],table:null};
   const hs=L.map(l=>l.bbox.y1-l.bbox.y0).sort((x,y)=>x-y),med=hs[hs.length>>1]||20;
   L.forEach(l=>{ // split each line into cells wherever there is a wide gap
-    l.h=l.bbox.y1-l.bbox.y0;l.cells=[];let cur=null,prev=null;
-    l.words.filter(w=>w.text.trim()).forEach(w=>{
+    l.h=l.bbox.y1-l.bbox.y0;l.clean=l.text.replace(PIPE,' ').replace(/\s+/g,' ').trim();l.cells=[];let cur=null,prev=null;
+    l.words.filter(w=>w.text.replace(PIPE,'').trim()&&w.confidence>=50).forEach(w=>{
       if(cur&&w.bbox.x0-prev.bbox.x1>Math.max(med*1.3,12))cur=null;
       if(!cur){cur={t:'',x:w.bbox.x0};l.cells.push(cur)}
-      cur.t+=(cur.t?' ':'')+w.text;prev=w});
+      cur.t+=(cur.t?' ':'')+w.text.replace(PIPE,'');prev=w});
   });
   let t=L.map(l=>l.cells.length>=2);
   t=t.map((v,i)=>v||(i>0&&i<L.length-1&&t[i-1]&&t[i+1])); // a one-cell row between table rows stays in the table
   const inTable=Array(L.length).fill(false);
-  for(let i=0;i<L.length;){if(!t[i]){i++;continue}let j=i;while(j<L.length&&t[j])j++;if(j-i>=3)for(let k=i;k<j;k++)inTable[k]=true;i=j}
+  for(let i=0;i<L.length;){if(!t[i]){i++;continue}let j=i;while(j<L.length&&t[j])j++;if(j-i>=4)for(let k=i;k<j;k++)inTable[k]=true;i=j}
   // column anchors from the x position of every table cell
   const xs=[];L.forEach((l,i)=>{if(inTable[i])l.cells.forEach(c=>xs.push(c.x))});xs.sort((p,q)=>p-q);
   const anchors=[];xs.forEach(x=>{const a=anchors[anchors.length-1];if(a&&x-a.last<W*.035){a.sum+=x;a.n++;a.last=x}else anchors.push({sum:x,n:1,last:x})});
@@ -294,7 +340,7 @@ function layout(data){
   const blocks=[];let last=null,prevY=null;
   L.forEach((l,i)=>{
     if(inTable[i]){last=null;return}
-    const tx=l.text.trim(),isList=/^([-•*·]|\d+[.)])\s+/.test(tx),letters=tx.replace(/[^A-Za-z]/g,'');
+    const tx=l.clean,isList=/^([-•*·]|\d+[.)])\s+/.test(tx),letters=tx.replace(/[^A-Za-z]/g,'');
     const isHead=!isList&&(l.h>med*1.35||(letters.length>3&&tx.split(/\s+/).length<=8&&tx===tx.toUpperCase()));
     const type=isHead?'heading':isList?'list':'paragraph';
     const close=prevY!==null&&l.bbox.y0-prevY<med*.9;
@@ -302,8 +348,8 @@ function layout(data){
     else{last={type,text:tx};blocks.push(last)}
     prevY=l.bbox.y1});
   blocks.forEach(b=>{if(b.type==='list')b.text=b.text.split('\n').map(s=>s.replace(/^([-•*·]|\d+[.)])\s+/,'')).join('\n')});
-  const share=inTable.filter(Boolean).length/L.length;
-  return{kind:share>=.35?'table':'text',blocks,table:rows.length?{rows}:null};
+  const share=inTable.filter(Boolean).length/L.length,useTable=rows.length>=4&&cols.length>=2;
+  return{kind:share>=.5&&useTable?'table':'text',blocks,table:useTable?{rows}:null};
 }
 function renderEdit(){
   show('s-edit',1);

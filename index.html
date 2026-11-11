@@ -33,7 +33,7 @@
         <li>The page corners are found automatically. Drag the dots if they are off.</li>
         <li>Press <b>Scan and clean</b>. The page is straightened, shadows and ruled lines are removed, and the text is read.</li>
         <li>Check the text next to the scan. Lists and tables are kept in rows and columns.</li>
-        <li>Export to <b>Word</b>, <b>Excel</b>, <b>PowerPoint</b> or <b>PDF</b>. Pick a format under “Export directly as” to download in one tap.</li>
+        <li>Export to <b>Word</b>, <b>Excel</b>, <b>PowerPoint</b> or <b>PDF</b>. Pick a format under “Export directly as” to download in one tap. Word and PowerPoint keep the page looking exactly like the original by default.</li>
         <li>Press <b>Clear scan</b> when you are done, or tick the box to clear after every export.</li>
       </ol></div>
       <div class="card"><h3>Photos</h3><ol>
@@ -73,6 +73,7 @@
           <label><input type="checkbox" id="rules" checked> Remove ruled lines</label>
           <label>Language <select id="lang"><option value="eng">English</option><option value="fil">Filipino</option><option value="spa">Spanish</option><option value="fra">French</option></select></label>
           <label>Export directly as <select id="fmt"><option value="auto">Auto (Excel for lists, Word for text)</option><option value="xlsx">Excel</option><option value="docx">Word</option><option value="pptx">PowerPoint</option><option value="pdf">PDF</option><option value="ask">Ask me (no auto export)</option></select></label>
+          <label>Word / PowerPoint look <select id="wmode"><option value="image">Keep the original page look (recommended)</option><option value="both">Original page + editable text after it</option><option value="text">Editable text only (layout may change)</option></select></label>
         </div>
         <div class="bar"><button class="btn primary" id="go">Scan and clean</button><button class="btn" data-clear>Choose another</button></div>
 
