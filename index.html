@@ -59,6 +59,7 @@
         <div class="bar center"><button class="btn primary" id="cambtn">Use live camera</button><label class="btn" for="file">Choose from device</label></div>
         <input id="file" type="file" accept="image/*" class="hide"><input id="camfile" type="file" accept="image/*" capture="environment" class="hide">
         <p id="pickhint"></p>
+        <p class="status">Files you choose are only read. Your original stays as it is.</p>
       </div>
       <div id="camwrap" class="hide"><video id="cam" playsinline muted autoplay></video>
         <div class="bar"><button class="btn primary" id="snap">Capture</button><button class="btn" id="camx">Cancel</button></div></div>
@@ -87,6 +88,7 @@
         </div>
         <div id="s-exp" class="hide">
           <h3 style="font-size:1.3rem">Export</h3>
+          <p class="status">Your original file is never changed. Each export is saved as a new file in another format, named like <b>yourfile-scanned.docx</b>.</p>
           <div class="bar"><button class="btn primary" data-x="docx">Word (.docx)</button><button class="btn primary" data-x="xlsx">Excel (.xlsx)</button><button class="btn primary" data-x="pptx">PowerPoint (.pptx)</button><button class="btn primary" data-x="pdf">PDF (.pdf)</button></div>
           <div class="opts"><label><input type="checkbox" class="autoclear"> Clear the scan after exporting</label><button class="btn" data-clear>Clear scan</button></div>
         </div>

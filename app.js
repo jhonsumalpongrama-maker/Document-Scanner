@@ -8,15 +8,22 @@ const dims=s=>[s.naturalWidth||s.width,s.naturalHeight||s.height];
 // Optional: URL of your own server. It receives a JPEG (POST body) and returns JSON:
 // {"kind":"text"|"table","blocks":[{"type":"heading|paragraph|list","text":""}],"table":null|{"rows":[[""]]}}
 const OCR_ENDPOINT='';
-let mode='doc',cur=null,pts=null,doc=null,stream=null,anim=null;
+let mode='doc',cur=null,pts=null,doc=null,stream=null,anim=null,srcName='';
 const pbase=document.createElement('canvas');
 
+// The original file is only READ (as a copy in memory). Every export is a brand new file
+// named after the original plus a suffix, so the original is never overwritten or changed.
+function outName(suffix,ext){
+  let base=(srcName||'').replace(/\.[^.]+$/,'').replace(/[\\/:*?"<>|]+/g,'_').trim();
+  if(!base){const d=new Date(),p=n=>String(n).padStart(2,'0');base='camera-'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())}
+  return base+'-'+suffix+'.'+ext;
+}
 async function save(name,data){
   const blob=data instanceof Blob?data:new Blob([data]);
-  if(hasClaude()){try{const d=await claude.use('downloads');if(d){await d.save({filename:name,data:blob});say('Saved '+name+'.');return}}
+  if(hasClaude()){try{const d=await claude.use('downloads');if(d){await d.save({filename:name,data:blob});say('Saved as a new file: '+name+'. Your original was not changed.');return}}
     catch(e){if(e&&e.code==='declined'){say('Download cancelled.');return}}}
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
-  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);say('Saved '+name+'.');
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);say('Saved as a new file: '+name+'. Your original was not changed.');
 }
 
 // ----- mode tabs -----
@@ -26,7 +33,7 @@ function setMode(m){mode=m;document.querySelectorAll('[data-mode]').forEach(b=>b
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
 
 // ----- input: live camera or local file -----
-function loadFile(f){if(!f)return;const im=new Image();im.onload=()=>{cur=im;enter();URL.revokeObjectURL(im.src)};
+function loadFile(f){if(!f)return;srcName=f.name||'';const im=new Image();im.onload=()=>{cur=im;enter();URL.revokeObjectURL(im.src)};
   im.onerror=()=>say('That file could not be opened as an image.',1);im.src=URL.createObjectURL(f)}
 $('file').onchange=e=>loadFile(e.target.files[0]);$('camfile').onchange=e=>loadFile(e.target.files[0]);
 async function openCam(){
@@ -37,9 +44,9 @@ async function openCam(){
 function closeCam(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;show('camwrap',0)}
 $('cambtn').onclick=openCam;
 $('camx').onclick=()=>{closeCam();show('pick',1);say('Camera closed.')};
-$('snap').onclick=()=>{const v=$('cam'),c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);closeCam();cur=c;enter()};
+$('snap').onclick=()=>{const v=$('cam'),c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);closeCam();srcName='';cur=c;enter()};
 function enter(){closeCam();show('pick',0);show('doc',mode==='doc');show('photo',mode==='photo');stopAnim();mode==='doc'?setupDoc():setupPhoto()}
-function clearAll(msg){closeCam();stopAnim();cur=pts=doc=null;
+function clearAll(msg){closeCam();stopAnim();cur=pts=doc=null;srcName='';
   ['src','out','ref','pv','av'].forEach(i=>{$(i).width=$(i).height=0});pbase.width=pbase.height=0;
   $('file').value=$('camfile').value='';$('blocks').innerHTML=$('tbl').innerHTML='';
   show('doc',0);show('photo',0);show('s-edit',0);show('s-exp',0);show('pick',1);say(msg||'Cleared. Nothing is kept on this page.')}
@@ -117,12 +124,12 @@ document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>exportAs(b.datase
 async function exportAs(k){
   try{
     if(!$('out').width){say('Press Scan and clean first.',1);return}
-    if(k==='pdf')await save('scan.pdf',await pdfFrom($('out')));
+    if(k==='pdf')await save(outName('scanned','pdf'),await pdfFrom($('out')));
     else{
       if(needsText(k)&&!await ensureDoc())return;
-      if(k==='docx')await save('scan.docx',await makeDocx());
-      if(k==='xlsx')await save('scan.xlsx',makeXlsx());
-      if(k==='pptx')await save('scan.pptx',await makePptx())}
+      if(k==='docx')await save(outName('scanned','docx'),await makeDocx());
+      if(k==='xlsx')await save(outName('scanned','xlsx'),makeXlsx());
+      if(k==='pptx')await save(outName('scanned','pptx'),await makePptx())}
     maybeClear();
   }catch(e){say('Export failed: '+((e&&e.message)||e),1)}
 }
@@ -233,12 +240,12 @@ $('rec').onclick=()=>{
   playAnim();const mt=['video/webm;codecs=vp9','video/webm','video/mp4'].find(m=>MediaRecorder.isTypeSupported(m));
   const rc=new MediaRecorder($('av').captureStream(30),mt?{mimeType:mt}:{}),ch=[];
   rc.ondataavailable=e=>e.data.size&&ch.push(e.data);
-  rc.onstop=async()=>{stopAnim();await save('photo-animated.'+(rc.mimeType.includes('mp4')?'mp4':'webm'),new Blob(ch,{type:rc.mimeType}));maybeClear()};
+  rc.onstop=async()=>{stopAnim();await save(outName('animated',rc.mimeType.includes('mp4')?'mp4':'webm'),new Blob(ch,{type:rc.mimeType}));maybeClear()};
   say('Recording a 4 second animation…');rc.start();setTimeout(()=>rc.stop(),4000)};
 $('dl-img').onclick=async()=>{const f=$('pf').value,m='image/'+f,b=await toBlob($('pv'),m,.92);
   if(!b||b.type!==m){say('This browser cannot save '+f.toUpperCase()+'.',1);return}
-  await save('photo.'+(f==='jpeg'?'jpg':f),b);maybeClear()};
-$('dl-ppdf').onclick=async()=>{try{await save('photo.pdf',await pdfFrom($('pv')));maybeClear()}catch(e){say('Export failed: '+e.message,1)}};
+  await save(outName('edited',f==='jpeg'?'jpg':f),b);maybeClear()};
+$('dl-ppdf').onclick=async()=>{try{await save(outName('edited','pdf'),await pdfFrom($('pv')));maybeClear()}catch(e){say('Export failed: '+e.message,1)}};
 
 function guess(c){ // finds the page by colour/brightness difference from the surface, keeps the most rectangular blob
   const w=96,h=Math.max(8,Math.round(96*c.height/c.width)),t=document.createElement('canvas');t.width=w;t.height=h;
