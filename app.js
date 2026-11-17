@@ -76,20 +76,66 @@ function doFlatten(){
       od.data[i+c]=g(x0,y0)*(1-fx)*(1-fy)+g(x0+1,y0)*fx*(1-fy)+g(x0,y0+1)*(1-fx)*fy+g(x0+1,y0+1)*fx*fy}}
   ox.putImageData(od,0,0);clean(o);show('s-exp',1);return true;
 }
-function clean(o){ // even out lighting, boost contrast, erase ruled lines
-  const w=o.width,h=o.height,ox=o.getContext('2d'),d=ox.getImageData(0,0,w,h);
-  const sm=document.createElement('canvas');sm.width=Math.max(8,w>>4);sm.height=Math.max(8,h>>4);
-  const sx=sm.getContext('2d');sx.imageSmoothingQuality='high';sx.drawImage(o,0,0,sm.width,sm.height);
-  const bg=document.createElement('canvas');bg.width=w;bg.height=h;const bx=bg.getContext('2d');bx.imageSmoothingQuality='high';bx.drawImage(sm,0,0,w,h);
-  const b=bx.getImageData(0,0,w,h).data;
-  for(let i=0;i<d.data.length;i+=4){
-    const g=.3*d.data[i]+.59*d.data[i+1]+.11*d.data[i+2],bl=.3*b[i]+.59*b[i+1]+.11*b[i+2]+1;
-    const r=Math.max(0,Math.min(1,(g/bl-.55)/.4))*255;d.data[i]=d.data[i+1]=d.data[i+2]=r}
-  if($('rules').checked){
-    const dk=new Uint8Array(w*h);for(let i=0;i<w*h;i++)dk[i]=d.data[i*4]<150?1:0;const min=Math.round(w*.1);
-    for(let y=0;y<h;y++){const on=i=>dk[y*w+i]||(y>0&&dk[(y-1)*w+i])||(y<h-1&&dk[(y+1)*w+i]);let x=0;
+function clean(o){ // even out the lighting but KEEP the original colours (black and white only if chosen)
+  const w=o.width,h=o.height,ox=o.getContext('2d'),d=ox.getImageData(0,0,w,h),px=d.data;
+  const bw=!!$('cleanmode')&&$('cleanmode').value==='bw';
+  if(bw){ // optional scanner look: grey, high contrast
+    const sm=document.createElement('canvas');sm.width=Math.max(8,w>>4);sm.height=Math.max(8,h>>4);
+    const sx=sm.getContext('2d');sx.imageSmoothingQuality='high';sx.drawImage(o,0,0,sm.width,sm.height);
+    const bg=document.createElement('canvas');bg.width=w;bg.height=h;const bx=bg.getContext('2d');bx.imageSmoothingQuality='high';bx.drawImage(sm,0,0,w,h);
+    const b=bx.getImageData(0,0,w,h).data;
+    for(let i=0;i<px.length;i+=4){
+      const g=.3*px[i]+.59*px[i+1]+.11*px[i+2],bl=.3*b[i]+.59*b[i+1]+.11*b[i+2]+1;
+      const r=Math.max(0,Math.min(1,(g/bl-.55)/.4))*255;px[i]=px[i+1]=px[i+2]=r}
+  }else{
+    // Lighting map from the PAPER only (bright, nearly colourless cells), so big coloured blocks, photos and
+    // dark areas are never mistaken for shadow. Holes are filled from the nearest paper, then smoothed.
+    // Every colour channel is scaled by the SAME factor: shadows go away and colours stay as they were.
+    const sw=Math.max(16,Math.round(w/8)),sh=Math.max(16,Math.round(h/8)),n=sw*sh;
+    const sm=document.createElement('canvas');sm.width=sw;sm.height=sh;
+    const sx=sm.getContext('2d');sx.imageSmoothingQuality='high';sx.drawImage(o,0,0,sw,sh);
+    const sd=sx.getImageData(0,0,sw,sh).data,lum=new Float32Array(n);
+    for(let i=0;i<n;i++)lum[i]=.3*sd[i*4]+.59*sd[i*4+1]+.11*sd[i*4+2];
+    const P=Array.from(lum).sort((p,q)=>p-q)[Math.floor(n*.95)];
+    if(P>=100){
+      const paper=new Float32Array(n);
+      for(let i=0;i<n;i++){const c=Math.max(sd[i*4],sd[i*4+1],sd[i*4+2])-Math.min(sd[i*4],sd[i*4+1],sd[i*4+2]);
+        paper[i]=(lum[i]>.5*P&&c<.2*lum[i])?lum[i]:0}
+      // brightest paper nearby, so small text never darkens the samples
+      const r=Math.max(2,Math.round(sw/16)),tmp=new Float32Array(n),mx=new Float32Array(n);
+      for(let y=0;y<sh;y++)for(let x=0;x<sw;x++){let m=0;for(let k=Math.max(0,x-r);k<=Math.min(sw-1,x+r);k++)if(paper[y*sw+k]>m)m=paper[y*sw+k];tmp[y*sw+x]=m}
+      for(let y=0;y<sh;y++)for(let x=0;x<sw;x++){let m=0;for(let k=Math.max(0,y-r);k<=Math.min(sh-1,y+r);k++)if(tmp[k*sw+x]>m)m=tmp[k*sw+x];mx[y*sw+x]=m}
+      // Light on a page is smooth, so fit ONE smooth curved surface to the paper samples.
+      // Nothing inside coloured blocks or photos can then be brightened or blotched.
+      const smp=[];for(let i=0;i<n;i++)if(paper[i])smp.push(i);
+      if(smp.length>=40){
+        const A=Array.from({length:6},()=>new Array(6).fill(0)),bv=new Array(6).fill(0),basis=(u,v)=>[1,u,v,u*v,u*u,v*v];
+        let lo=1e9,hi=0;
+        for(const i of smp){const e=basis((i%sw)/sw-.5,Math.floor(i/sw)/sh-.5),y=mx[i];lo=Math.min(lo,y);hi=Math.max(hi,y);
+          for(let p=0;p<6;p++){bv[p]+=e[p]*y;for(let q=0;q<6;q++)A[p][q]+=e[p]*e[q]}}
+        for(let p=1;p<6;p++)A[p][p]+=1e-3*smp.length;
+        const cf=solve(A,bv),lc=document.createElement('canvas');lc.width=sw;lc.height=sh;
+        const lx=lc.getContext('2d'),li=lx.createImageData(sw,sh);
+        for(let y=0;y<sh;y++)for(let x=0;x<sw;x++){const e=basis(x/sw-.5,y/sh-.5);let L=0;for(let p=0;p<6;p++)L+=cf[p]*e[p];
+          L=Math.max(lo*.9,Math.min(hi*1.05,L));const k=(y*sw+x)*4;li.data[k]=li.data[k+1]=li.data[k+2]=Math.min(255,L);li.data[k+3]=255}
+        lx.putImageData(li,0,0);
+        const bg=document.createElement('canvas');bg.width=w;bg.height=h;const bx=bg.getContext('2d');bx.imageSmoothingQuality='high';bx.drawImage(lc,0,0,w,h);
+        const b=bx.getImageData(0,0,w,h).data;
+        for(let i=0;i<px.length;i+=4){
+          const f=Math.min(1.8,255/(Math.max(60,b[i])*.97)); // gentle: at most 1.8x
+          px[i]=Math.min(255,px[i]*f);px[i+1]=Math.min(255,px[i+1]*f);px[i+2]=Math.min(255,px[i+2]*f)}
+      }
+    } // a very dark page is left exactly as it is
+  }
+  if($('rules').checked){ // optional: erase long, thin horizontal lines (notebook ruling)
+    const dk=new Uint8Array(w*h),lim=bw?150:190;
+    for(let i=0;i<w*h;i++)dk[i]=(.3*px[i*4]+.59*px[i*4+1]+.11*px[i*4+2])<lim?1:0;
+    const min=Math.round(w*.1);
+    for(let y=4;y<h-4;y++){const on=i=>dk[y*w+i]||dk[(y-1)*w+i]||dk[(y+1)*w+i];let x=0;
       while(x<w){if(!on(x)){x++;continue}const s=x;while(x<w&&on(x))x++;
-        if(x-s>=min)for(let k=s;k<x;k++){const p=(y*w+k)*4;d.data[p]=d.data[p+1]=d.data[p+2]=255}}}}
+        if(x-s>=min){let thick=0;for(let k=s;k<x;k++)if(dk[(y-4)*w+k]&&dk[(y+4)*w+k])thick++;
+          if(thick<(x-s)*.3)for(let k=s;k<x;k++){const p=(y*w+k)*4;px[p]=px[p+1]=px[p+2]=255}}}}
+  }
   ox.putImageData(d,0,0);
 }
 async function doRead(){
@@ -310,9 +356,14 @@ Rules: "kind" is "table" if the page is mainly a grid such as an attendance list
   return sample.json(prompt,{images:[blob],modelTier:'default',cache:false});
 }
 
+function ocrCanvas(){ // grey, high-contrast copy for the text reader only
+  const o=$('out'),c=document.createElement('canvas');c.width=o.width;c.height=o.height;const x=c.getContext('2d');x.drawImage(o,0,0);
+  const d=x.getImageData(0,0,c.width,c.height),p=d.data;
+  for(let i=0;i<p.length;i+=4){const g=.3*p[i]+.59*p[i+1]+.11*p[i+2],v=Math.max(0,Math.min(255,(g-90)*255/145));p[i]=p[i+1]=p[i+2]=v}
+  x.putImageData(d,0,0);return c}
 async function readLocal(){ // free, in-browser OCR (Tesseract.js)
   if(!window.Tesseract)throw new Error('the OCR engine did not load. Check your connection and reload');
-  const r=await Tesseract.recognize($('out'),$('lang').value,{logger:m=>{if(m.status==='recognizing text')say('Reading the page… '+Math.round(m.progress*100)+'%')}});
+  const r=await Tesseract.recognize(ocrCanvas(),$('lang').value,{logger:m=>{if(m.status==='recognizing text')say('Reading the page… '+Math.round(m.progress*100)+'%')}});
   return layout(r.data);
 }
 
